@@ -140,7 +140,16 @@ $("connect").onclick = async () => {
     device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SERVICE] });
     $("status").textContent = "Connecting to " + (device.name || "band") + "…";
     device.addEventListener("gattserverdisconnected", () => { $("status").textContent = "Disconnected"; $("pull").disabled = true; });
-    const server = await device.gatt.connect();
+    let server;
+    for (let attempt = 1; ; attempt++) {
+      try { server = await device.gatt.connect(); break; }
+      catch (e) {
+        log(`Attempt ${attempt} failed: ${e.message}`, true);
+        if (attempt >= 5) throw e;
+        $("status").textContent = `Retrying (${attempt + 1}/5)…`;
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    }
     const svc = await server.getPrimaryService(SERVICE);
     writeChar = await svc.getCharacteristic(WRITE);
     const notifyChar = await svc.getCharacteristic(NOTIFY);
@@ -153,11 +162,12 @@ $("connect").onclick = async () => {
     log("Connected: " + (device.name || device.id));
   } catch (e) {
     $("status").textContent = "Not connected";
-    log(e.name === "NotFoundError" ? "No device picked." : "Connect failed: " + e.message +
-        (String(e.message).includes("ervice") ? " — that device isn't the band, or the Hume app still has it." : ""), true);
+    const picked = device ? ` (picked "${device.name || "unnamed device"}")` : "";
+    log(e.name === "NotFoundError" ? "No device picked." : "Connect failed" + picked + ": " + e.message +
+        (String(e.message).includes("ervice") ? " — that device isn't the band." :
+         " — if the Hume app is running it may still hold the band: force-stop it and try again."), true);
   }
 };
-
 $("pull").onclick = async () => {
   $("pull").disabled = true; $("save").disabled = true;
   $("sets").innerHTML = "";
